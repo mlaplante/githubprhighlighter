@@ -11,8 +11,8 @@ A Chrome extension that visually highlights pull requests that are ready to be m
   - MUST have "Approved" status
   - Do NOT have "Review required" status
   - Do NOT have "Changes requested" status
-  - Do NOT have blocking labels like "Don't Merge" or "Needs more review"
-  - Do NOT have "WIP" or "Work in progress" labels
+  - Do NOT have blocking labels like "Don't Merge", "WIP", or "Work in progress"
+  - Note: "Needs More Reviews" is treated as informational and does NOT block highlighting
 - **Real-time Updates**: Uses MutationObserver to detect dynamically loaded content and updates the count automatically
 - **Debug Logging**: Check browser console (F12) for detailed detection information per PR
 

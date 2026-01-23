@@ -1,10 +1,9 @@
 // Configuration for blocking labels (case-insensitive)
+// Note: "Needs More Reviews" is NOT blocking - it's informational
 const BLOCKING_LABELS = [
   'dont merge',
   'don\'t merge',
   'do not merge',
-  'needs more review',
-  'needs review',
   'wip',
   'work in progress'
 ];
@@ -88,12 +87,28 @@ function hasBlockingReviewStatus(prElement) {
     'Review required',
     'review required',
     'Awaiting review',
-    'awaiting review'
+    'awaiting review',
+    'Needs review',
+    'needs review'
   ];
   
   for (const phrase of blockingPhrases) {
     if (prText.includes(phrase)) {
       console.log('[PR Highlighter] Found blocking phrase:', phrase);
+      return true;
+    }
+  }
+  
+  // Specifically check the metadata line (the line with author, date, status)
+  const metadataElements = prElement.querySelectorAll('.opened-by, .flex-auto, .d-flex');
+  for (const elem of metadataElements) {
+    const text = elem.textContent;
+    if (text.includes('Review required') || text.includes('review required')) {
+      console.log('[PR Highlighter] Found "Review required" in metadata');
+      return true;
+    }
+    if (text.includes('Changes requested') || text.includes('changes requested')) {
+      console.log('[PR Highlighter] Found "Changes requested" in metadata');
       return true;
     }
   }
