@@ -7,14 +7,14 @@ A Chrome extension that visually highlights pull requests that are ready to be m
 - **Notification Bar**: A sticky notification bar at the top of the page shows how many PRs are ready to merge
 - **Visual Highlighting**: PRs ready to merge are highlighted with a green background gradient and left border
 - **Ready Badge**: A "✓ Ready" badge appears on merge-ready PRs
+- **Lightweight & Fast**: Optimized for performance with minimal resource usage
 - **Smart Detection**: Automatically detects PRs that:
   - MUST have "Approved" status
   - Do NOT have "Review required" status
   - Do NOT have "Changes requested" status
   - Do NOT have blocking labels like "Don't Merge", "WIP", or "Work in progress"
   - Note: "Needs More Reviews" is treated as informational and does NOT block highlighting
-- **Real-time Updates**: Uses MutationObserver to detect dynamically loaded content and updates the count automatically
-- **Debug Logging**: Check browser console (F12) for detailed detection information per PR
+- **Real-time Updates**: Uses MutationObserver with intelligent debouncing to detect changes without slowing down the page
 
 ## Installation
 
@@ -55,8 +55,6 @@ A Chrome extension that visually highlights pull requests that are ready to be m
    - ✗ Do NOT have blocking labels: "Don't Merge", "Needs More Review", "WIP", etc.
 
 4. The notification bar and highlights update automatically as you interact with the page
-
-5. **Troubleshooting**: Open browser console (F12) to see debug logs showing why each PR is or isn't highlighted
 
 ## Customization
 
