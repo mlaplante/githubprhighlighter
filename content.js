@@ -1,5 +1,4 @@
 // Configuration for blocking labels (case-insensitive)
-// Note: "Needs More Reviews" is NOT blocking - it's informational
 const BLOCKING_LABELS = [
   'dont merge',
   'don\'t merge',
@@ -8,16 +7,63 @@ const BLOCKING_LABELS = [
   'work in progress'
 ];
 
+// Add a visible debug panel
+function addDebugPanel(message) {
+  let debugPanel = document.getElementById('pr-highlighter-debug');
+  if (!debugPanel) {
+    debugPanel = document.createElement('div');
+    debugPanel.id = 'pr-highlighter-debug';
+    debugPanel.style.cssText = `
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: #1f2937;
+      color: #10b981;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 11px;
+      max-width: 400px;
+      max-height: 300px;
+      overflow-y: auto;
+      z-index: 10000;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      border: 2px solid #10b981;
+    `;
+    document.body.appendChild(debugPanel);
+  }
+  
+  const timestamp = new Date().toLocaleTimeString();
+  debugPanel.innerHTML = `<div><strong>[${timestamp}]</strong> ${message}</div>` + debugPanel.innerHTML;
+  console.log(`[PR Highlighter] ${message}`);
+}
+
 /**
  * Check if a PR has any blocking labels
  */
 function hasBlockingLabel(prElement) {
-  const labels = prElement.querySelectorAll('.labels .IssueLabel');
+  // Try multiple label selectors
+  const labelSelectors = [
+    '.labels .IssueLabel',
+    '.IssueLabel',
+    '[data-name]',
+    '.Label'
+  ];
   
-  for (const label of labels) {
-    const labelText = label.textContent.trim().toLowerCase();
-    if (BLOCKING_LABELS.some(blocking => labelText.includes(blocking))) {
-      return true;
+  for (const selector of labelSelectors) {
+    const labels = prElement.querySelectorAll(selector);
+    if (labels.length > 0) {
+      addDebugPanel(`Found ${labels.length} labels using selector: ${selector}`);
+    }
+    
+    for (const label of labels) {
+      const labelText = label.textContent.trim().toLowerCase();
+      addDebugPanel(`Checking label: "${labelText}"`);
+      
+      if (BLOCKING_LABELS.some(blocking => labelText.includes(blocking))) {
+        addDebugPanel(`❌ BLOCKING label found: "${labelText}"`);
+        return true;
+      }
     }
   }
   
@@ -28,97 +74,33 @@ function hasBlockingLabel(prElement) {
  * Check if a PR has been approved
  */
 function hasApprovedStatus(prElement) {
-  // Method 1: Check the entire text content of the PR row
   const prText = prElement.textContent || '';
   
-  // Look for "Approved" or "approved" anywhere in the PR row text
+  addDebugPanel(`Checking PR text for "Approved": ${prText.substring(0, 200)}...`);
+  
   if (prText.includes('Approved') || prText.includes('approved')) {
-    console.log('[PR Highlighter] Found "Approved" in text content');
+    addDebugPanel('✓ Found "Approved" in PR text!');
     return true;
   }
   
-  // Method 2: Check for elements with specific classes or attributes
-  const statusElements = prElement.querySelectorAll(
-    '.State, .State--open, .State--closed, .State--merged, ' +
-    '[data-test-selector*="review"], [aria-label*="pproved"], ' +
-    '.text-small, .color-fg-muted, .d-flex'
-  );
-  
-  for (const elem of statusElements) {
-    const text = elem.textContent.toLowerCase();
-    if (text.includes('approved')) {
-      console.log('[PR Highlighter] Found "approved" in status element:', elem);
-      return true;
-    }
-  }
-  
-  // Method 3: Look in all small text elements
-  const allSmallText = prElement.querySelectorAll('.text-small, .Link--muted, span');
-  for (const elem of allSmallText) {
-    if (elem.textContent.includes('Approved') || elem.textContent.includes('approved')) {
-      console.log('[PR Highlighter] Found "Approved" in small text element');
-      return true;
-    }
-  }
-  
-  // Method 4: Check all elements with aria-labels
-  const elementsWithLabels = prElement.querySelectorAll('[aria-label]');
-  for (const elem of elementsWithLabels) {
-    const label = elem.getAttribute('aria-label')?.toLowerCase() || '';
-    if (label.includes('approved')) {
-      console.log('[PR Highlighter] Found "approved" in aria-label:', label);
-      return true;
-    }
-  }
-  
+  addDebugPanel('❌ "Approved" not found in PR text');
   return false;
 }
 
 /**
- * Check if a PR has blocking review status (changes requested, review required, etc.)
+ * Check if a PR has blocking review status
  */
 function hasBlockingReviewStatus(prElement) {
   const prText = prElement.textContent || '';
   
-  // Check for blocking phrases in the entire PR text
   const blockingPhrases = [
     'Changes requested',
-    'changes requested',
-    'Review required',
-    'review required',
-    'Awaiting review',
-    'awaiting review',
-    'Needs review',
-    'needs review'
+    'Review required'
   ];
   
   for (const phrase of blockingPhrases) {
     if (prText.includes(phrase)) {
-      console.log('[PR Highlighter] Found blocking phrase:', phrase);
-      return true;
-    }
-  }
-  
-  // Specifically check the metadata line (the line with author, date, status)
-  const metadataElements = prElement.querySelectorAll('.opened-by, .flex-auto, .d-flex');
-  for (const elem of metadataElements) {
-    const text = elem.textContent;
-    if (text.includes('Review required') || text.includes('review required')) {
-      console.log('[PR Highlighter] Found "Review required" in metadata');
-      return true;
-    }
-    if (text.includes('Changes requested') || text.includes('changes requested')) {
-      console.log('[PR Highlighter] Found "Changes requested" in metadata');
-      return true;
-    }
-  }
-  
-  // Check aria-labels
-  const elementsWithLabels = prElement.querySelectorAll('[aria-label]');
-  for (const elem of elementsWithLabels) {
-    const label = elem.getAttribute('aria-label')?.toLowerCase() || '';
-    if (label.includes('changes requested') || label.includes('review required')) {
-      console.log('[PR Highlighter] Found blocking status in aria-label:', label);
+      addDebugPanel(`❌ Found blocking phrase: "${phrase}"`);
       return true;
     }
   }
@@ -130,22 +112,21 @@ function hasBlockingReviewStatus(prElement) {
  * Check if a PR is ready to merge
  */
 function isPRReadyToMerge(prElement) {
-  // Must not have blocking labels
-  if (hasBlockingLabel(prElement)) {
-    return false;
-  }
+  const hasBlocking = hasBlockingLabel(prElement);
+  const hasBlockingReview = hasBlockingReviewStatus(prElement);
+  const hasApproved = hasApprovedStatus(prElement);
   
-  // Must not have blocking review status (changes requested, review required)
-  if (hasBlockingReviewStatus(prElement)) {
-    return false;
-  }
+  const isReady = !hasBlocking && !hasBlockingReview && hasApproved;
   
-  // Must have approved status
-  if (!hasApprovedStatus(prElement)) {
-    return false;
-  }
+  addDebugPanel(`
+    <strong>PR Ready Check:</strong><br>
+    - No blocking labels: ${!hasBlocking ? '✓' : '❌'}<br>
+    - No blocking review: ${!hasBlockingReview ? '✓' : '❌'}<br>
+    - Has approved: ${hasApproved ? '✓' : '❌'}<br>
+    - <strong>READY: ${isReady ? '✓ YES' : '❌ NO'}</strong>
+  `);
   
-  return true;
+  return isReady;
 }
 
 /**
@@ -159,7 +140,6 @@ function createNotificationBar() {
     notificationBar.id = 'merge-ready-notification';
     notificationBar.className = 'merge-ready-notification';
     
-    // Insert at the top of the page
     const container = document.querySelector('.application-main') || document.body;
     container.insertBefore(notificationBar, container.firstChild);
   }
@@ -202,62 +182,72 @@ function updateNotificationBar(count) {
  * Highlight merge-ready PRs and update notification
  */
 function highlightMergeReadyPRs() {
-  // Try multiple selectors to find PR items
-  let prItems = document.querySelectorAll('[data-id][data-hovercard-type="pull_request"]');
+  addDebugPanel('=== Starting PR scan ===');
   
-  // Fallback: try alternative selectors
-  if (prItems.length === 0) {
-    prItems = document.querySelectorAll('.js-issue-row');
+  // Try MANY different selectors to find PR rows
+  const prSelectors = [
+    '[data-id][data-hovercard-type="pull_request"]',
+    '.js-issue-row',
+    '[id^="issue_"]',
+    'div[id^="issue_"]',
+    '.Box-row',
+    '[data-hovercard-type="pull_request"]'
+  ];
+  
+  let prItems = [];
+  for (const selector of prSelectors) {
+    prItems = document.querySelectorAll(selector);
+    if (prItems.length > 0) {
+      addDebugPanel(`✓ Found ${prItems.length} PRs using selector: "${selector}"`);
+      break;
+    } else {
+      addDebugPanel(`Tried selector "${selector}" - found 0 items`);
+    }
   }
   
   if (prItems.length === 0) {
-    prItems = document.querySelectorAll('[id^="issue_"]');
-  }
-  
-  console.log(`[PR Highlighter] Found ${prItems.length} PR items using selector`);
-  
-  // If still no items found, log the page structure
-  if (prItems.length === 0) {
-    console.log('[PR Highlighter] No PR items found. Page structure:', 
-                document.querySelector('.js-navigation-container, .container-lg'));
+    addDebugPanel('❌ NO PR ITEMS FOUND! Extension cannot work.');
     return;
   }
   
   let readyCount = 0;
   
   prItems.forEach((prElement, index) => {
-    // Remove existing highlight class first
+    addDebugPanel(`<br>--- Checking PR #${index + 1} ---`);
+    
+    // Remove existing highlight
     prElement.classList.remove('merge-ready-pr');
     
-    // Debug info for each PR
-    const prTitle = prElement.querySelector('.markdown-title')?.textContent.trim() || 
-                    prElement.querySelector('a.Link--primary')?.textContent.trim() ||
-                    prElement.querySelector('.js-navigation-open')?.textContent.trim() ||
-                    `PR ${index + 1}`;
+    // Get PR title for logging
+    const titleSelectors = ['.markdown-title', 'a.Link--primary', '.js-navigation-open'];
+    let prTitle = `PR ${index + 1}`;
+    for (const sel of titleSelectors) {
+      const titleElem = prElement.querySelector(sel);
+      if (titleElem) {
+        prTitle = titleElem.textContent.trim();
+        break;
+      }
+    }
     
-    const hasBlocking = hasBlockingLabel(prElement);
-    const hasBlockingReview = hasBlockingReviewStatus(prElement);
-    const hasApproved = hasApprovedStatus(prElement);
+    addDebugPanel(`<strong>PR Title: ${prTitle}</strong>`);
     
-    console.log(`[PR Highlighter] "${prTitle}":`, {
-      hasBlockingLabel: hasBlocking,
-      hasBlockingReviewStatus: hasBlockingReview,
-      hasApprovedStatus: hasApproved,
-      isReady: !hasBlocking && !hasBlockingReview && hasApproved,
-      textContent: prElement.textContent.substring(0, 200) + '...'
-    });
-    
-    // Check if PR is ready to merge
+    // Check if ready
     if (isPRReadyToMerge(prElement)) {
       prElement.classList.add('merge-ready-pr');
+      
+      // Add inline styles as backup
+      prElement.style.background = 'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.08) 100%)';
+      prElement.style.borderLeft = '4px solid #10b981';
+      prElement.style.paddingLeft = '12px';
+      
       readyCount++;
-      console.log(`[PR Highlighter] ✓ "${prTitle}" is ready to merge`);
+      addDebugPanel(`✓✓✓ PR "${prTitle}" IS READY AND HIGHLIGHTED! ✓✓✓`);
+    } else {
+      addDebugPanel(`PR "${prTitle}" is NOT ready`);
     }
   });
   
-  console.log(`[PR Highlighter] Total ready to merge: ${readyCount}`);
-  
-  // Update notification bar with count
+  addDebugPanel(`<br><strong>TOTAL READY: ${readyCount}</strong>`);
   updateNotificationBar(readyCount);
 }
 
@@ -265,29 +255,33 @@ function highlightMergeReadyPRs() {
  * Initialize the extension
  */
 function init() {
-  // Initial highlighting
-  highlightMergeReadyPRs();
+  addDebugPanel('🚀 PR Highlighter Extension Started!');
+  addDebugPanel(`Current URL: ${window.location.href}`);
   
-  // Watch for DOM changes (GitHub uses dynamic loading)
+  // Initial highlighting
+  setTimeout(() => {
+    highlightMergeReadyPRs();
+  }, 1000);
+  
+  // Watch for DOM changes
   const observer = new MutationObserver((mutations) => {
-    // Debounce to avoid excessive calls
     clearTimeout(observer.timeoutId);
     observer.timeoutId = setTimeout(() => {
+      addDebugPanel('DOM changed, re-scanning...');
       highlightMergeReadyPRs();
-    }, 300);
+    }, 500);
   });
   
-  // Observe the PR list container
-  const prListContainer = document.querySelector('[aria-label="Issues"]') || 
-                          document.querySelector('.js-navigation-container') ||
-                          document.body;
+  const container = document.querySelector('.js-navigation-container') || 
+                    document.querySelector('.container-lg') ||
+                    document.body;
   
-  if (prListContainer) {
-    observer.observe(prListContainer, {
+  if (container) {
+    observer.observe(container, {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['class', 'aria-label']
+      attributeFilter: ['class']
     });
   }
 }
@@ -298,3 +292,4 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
