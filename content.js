@@ -26,43 +26,78 @@ function hasBlockingLabel(prElement) {
 }
 
 /**
- * Check if a PR has "Review required" status
+ * Check if a PR has been approved
  */
-function hasReviewRequired(prElement) {
-  // Look for review status indicators
-  const reviewStatus = prElement.querySelector('[aria-label*="review"]');
+function hasApprovedStatus(prElement) {
+  // Look for all elements with aria-label attributes (review status indicators)
+  const elementsWithLabels = prElement.querySelectorAll('[aria-label]');
   
-  if (reviewStatus) {
-    const statusText = reviewStatus.getAttribute('aria-label')?.toLowerCase() || '';
-    const innerText = reviewStatus.textContent.toLowerCase();
+  for (const elem of elementsWithLabels) {
+    const label = elem.getAttribute('aria-label')?.toLowerCase() || '';
     
-    // Check for "review required" or "changes requested"
-    if (statusText.includes('review required') || 
-        statusText.includes('changes requested') ||
-        innerText.includes('review required') ||
-        innerText.includes('changes requested')) {
+    // Check for "approved" in the aria-label
+    if (label.includes('approved')) {
       return true;
     }
   }
   
-  // Alternative: Check for review state in the PR row
+  // Check for review state elements
   const reviewElements = prElement.querySelectorAll('[data-test-selector="pr-review-state"]');
   for (const elem of reviewElements) {
     const text = elem.textContent.toLowerCase();
-    if (text.includes('review required') || text.includes('changes requested')) {
+    if (text.includes('approved')) {
       return true;
     }
   }
   
-  // Check for octicon review icons with specific states
-  const reviewIcons = prElement.querySelectorAll('.octicon-dot-fill, .octicon-circle');
-  for (const icon of reviewIcons) {
+  // Check for text content that includes "approved"
+  const allText = prElement.textContent.toLowerCase();
+  const reviewSections = prElement.querySelectorAll('.text-small, .text-normal, .color-fg-muted');
+  
+  for (const section of reviewSections) {
+    const sectionText = section.textContent.toLowerCase();
+    if (sectionText.includes('approved')) {
+      return true;
+    }
+  }
+  
+  // Check for octicon check icons (typically used for approved status)
+  const checkIcons = prElement.querySelectorAll('.octicon-check');
+  for (const icon of checkIcons) {
     const parent = icon.closest('[aria-label]');
     if (parent) {
       const label = parent.getAttribute('aria-label')?.toLowerCase() || '';
-      if (label.includes('review required') || label.includes('changes requested')) {
+      if (label.includes('approved') || label.includes('review')) {
         return true;
       }
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a PR has blocking review status (changes requested, review required, etc.)
+ */
+function hasBlockingReviewStatus(prElement) {
+  const elementsWithLabels = prElement.querySelectorAll('[aria-label]');
+  
+  for (const elem of elementsWithLabels) {
+    const label = elem.getAttribute('aria-label')?.toLowerCase() || '';
+    
+    // Check for blocking statuses
+    if (label.includes('changes requested') || 
+        label.includes('review required')) {
+      return true;
+    }
+  }
+  
+  // Check review state elements
+  const reviewElements = prElement.querySelectorAll('[data-test-selector="pr-review-state"]');
+  for (const elem of reviewElements) {
+    const text = elem.textContent.toLowerCase();
+    if (text.includes('changes requested') || text.includes('review required')) {
+      return true;
     }
   }
   
@@ -78,8 +113,13 @@ function isPRReadyToMerge(prElement) {
     return false;
   }
   
-  // Must not have "review required" status
-  if (hasReviewRequired(prElement)) {
+  // Must not have blocking review status (changes requested, review required)
+  if (hasBlockingReviewStatus(prElement)) {
+    return false;
+  }
+  
+  // Must have approved status
+  if (!hasApprovedStatus(prElement)) {
     return false;
   }
   
@@ -143,18 +183,39 @@ function highlightMergeReadyPRs() {
   // Find all PR items in the list
   const prItems = document.querySelectorAll('[data-id][data-hovercard-type="pull_request"]');
   
+  console.log(`[PR Highlighter] Found ${prItems.length} PR items`);
+  
   let readyCount = 0;
   
-  prItems.forEach(prElement => {
+  prItems.forEach((prElement, index) => {
     // Remove existing highlight class first
     prElement.classList.remove('merge-ready-pr');
+    
+    // Debug info for each PR
+    const prTitle = prElement.querySelector('.markdown-title')?.textContent.trim() || 
+                    prElement.querySelector('a.Link--primary')?.textContent.trim() || 
+                    `PR ${index + 1}`;
+    
+    const hasBlocking = hasBlockingLabel(prElement);
+    const hasBlockingReview = hasBlockingReviewStatus(prElement);
+    const hasApproved = hasApprovedStatus(prElement);
+    
+    console.log(`[PR Highlighter] "${prTitle}":`, {
+      hasBlockingLabel: hasBlocking,
+      hasBlockingReviewStatus: hasBlockingReview,
+      hasApprovedStatus: hasApproved,
+      isReady: !hasBlocking && !hasBlockingReview && hasApproved
+    });
     
     // Check if PR is ready to merge
     if (isPRReadyToMerge(prElement)) {
       prElement.classList.add('merge-ready-pr');
       readyCount++;
+      console.log(`[PR Highlighter] ✓ "${prTitle}" is ready to merge`);
     }
   });
+  
+  console.log(`[PR Highlighter] Total ready to merge: ${readyCount}`);
   
   // Update notification bar with count
   updateNotificationBar(readyCount);
