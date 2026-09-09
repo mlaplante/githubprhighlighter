@@ -1,81 +1,175 @@
-// Configuration for blocking labels (case-insensitive)
-const BLOCKING_LABELS = [
-  'dont merge',
-  'don\'t merge',
-  'do not merge',
-  'wip',
-  'work in progress'
-];
+(() => {
+  'use strict';
 
-/**
- * Check if a PR has any blocking labels
- */
-function hasBlockingLabel(prElement) {
-  const labels = prElement.querySelectorAll('.IssueLabel, .Label');
-  
-  for (const label of labels) {
-    const labelText = label.textContent.trim().toLowerCase();
-    if (BLOCKING_LABELS.some(blocking => labelText.includes(blocking))) {
-      return true;
+  // Configuration for blocking labels (case-insensitive)
+  const BLOCKING_LABELS = [
+    'dont merge',
+    'don\'t merge',
+    'do not merge',
+    'wip',
+    'work in progress'
+  ];
+
+  const ROW_FLAG = 'merge-ready-pr';
+  const SEEN_ATTR = 'data-mrh-seen';
+
+  // ---------------------------------------------------------------------------
+  // Adapters
+  //
+  // GitHub currently serves two different PR-list markups: the legacy
+  // Rails-rendered list (still what logged-out visitors and pre-rollout accounts
+  // get) and the newer React list. Both are live at the same time, so we detect
+  // which one is on the page rather than committing to either.
+  //
+  // Each adapter answers the same three questions about the page:
+  //   listRoot() -> the element to observe for changes, or null if not this view
+  //   rows(root) -> the per-PR row elements to highlight
+  //   signals(row) -> { labels: string[], review: string } for the shared predicate
+  // ---------------------------------------------------------------------------
+
+  const LEGACY_ADAPTER = {
+    name: 'legacy',
+
+    listRoot() {
+      const container = document.querySelector('.js-navigation-container');
+      return container && container.querySelector('.js-issue-row') ? container : null;
+    },
+
+    rows(root) {
+      return root.querySelectorAll('.js-issue-row');
+    },
+
+    signals(row) {
+      const labels = [...row.querySelectorAll('.IssueLabel, .Label')]
+        .map(el => el.textContent.trim());
+
+      // The legacy row spells review state out in text content. It marks drafts
+      // differently from the React view and this path can't be exercised while
+      // signed in, so draft state is left unknown here rather than guessed at.
+      return { labels, review: row.textContent || '', draft: false };
     }
+  };
+
+  // The React list (react-app[app-name="pull-requests"]). Its class names are
+  // CSS-module hashes — PullsListItem-module__listItem__CSciQ — and the hash
+  // suffix changes on every GitHub deploy, so match on the stable module-name
+  // prefix only. Never hard-code the hash.
+  const NEW_ADAPTER = {
+    name: 'react',
+
+    listRoot() {
+      const ul = document.querySelector('ul[class*="ListView-module__ul"]');
+      if (!ul || !ul.querySelector('li[class*="PullsListItem-module__listItem"]')) {
+        return null;
+      }
+      // Observe the container rather than the <ul>: pagination and filtering
+      // swap the whole list out, which would orphan an observer bound to the ul.
+      return ul.closest('[class*="SharedListContainer-module__listContainer"]') || ul;
+    },
+
+    rows(root) {
+      return root.querySelectorAll('li[class*="PullsListItem-module__listItem"]');
+    },
+
+    signals(row) {
+      // Each label is a filter button wrapping a token; the accessible name is
+      // "Filter by label <name>". The trailing space matters — it excludes the
+      // toolbar's own "Filter by label" quick-filter button.
+      let labels = [...row.querySelectorAll('[aria-label^="Filter by label "]')]
+        .map(el => el.textContent.trim());
+
+      if (labels.length === 0) {
+        labels = [...row.querySelectorAll('[class*="prc-Token-IssueLabel"]')]
+          .map(el => el.textContent.trim());
+      }
+
+      // Review state lives only in this icon ("· Approved", "· Review required",
+      // "· Changes requested"), and is absent entirely when no review exists.
+      // Read it from the icon rather than the row: a PR *titled* e.g. "Approved
+      // vendor list" would otherwise match on row-wide text.
+      const icon = row.querySelector('[data-testid="review-decision-icon"]');
+      const review = icon ? icon.textContent.replace(/^[·\s]+/, '').trim() : '';
+
+      // A draft can be approved, but GitHub still refuses to merge it, so it is
+      // never "ready".
+      const draft = !!row.querySelector('[aria-label="Draft pull request"]');
+
+      return { labels, review, draft };
+    }
+  };
+
+  const ADAPTERS = [NEW_ADAPTER, LEGACY_ADAPTER].filter(Boolean);
+
+  function detectAdapter() {
+    for (const adapter of ADAPTERS) {
+      const root = adapter.listRoot();
+      if (root) return { adapter, root };
+    }
+    return null;
   }
-  
-  return false;
-}
 
-/**
- * Check if a PR has been approved
- */
-function hasApprovedStatus(prElement) {
-  const prText = prElement.textContent || '';
-  return prText.includes('Approved') || prText.includes('approved');
-}
+  // ---------------------------------------------------------------------------
+  // Shared predicate — identical rules for both views
+  // ---------------------------------------------------------------------------
 
-/**
- * Check if a PR has blocking review status
- */
-function hasBlockingReviewStatus(prElement) {
-  const prText = prElement.textContent || '';
-  
-  return prText.includes('Changes requested') || 
-         prText.includes('Review required');
-}
-
-/**
- * Check if a PR is ready to merge
- */
-function isPRReadyToMerge(prElement) {
-  return !hasBlockingLabel(prElement) && 
-         !hasBlockingReviewStatus(prElement) && 
-         hasApprovedStatus(prElement);
-}
-
-/**
- * Create or update the notification bar
- */
-function createNotificationBar() {
-  let notificationBar = document.getElementById('merge-ready-notification');
-  
-  if (!notificationBar) {
-    notificationBar = document.createElement('div');
-    notificationBar.id = 'merge-ready-notification';
-    notificationBar.className = 'merge-ready-notification';
-    
-    const container = document.querySelector('.application-main') || document.body;
-    container.insertBefore(notificationBar, container.firstChild);
+  function hasBlockingLabel({ labels }) {
+    return labels.some(text => {
+      const lower = text.toLowerCase();
+      return BLOCKING_LABELS.some(blocking => lower.includes(blocking));
+    });
   }
-  
-  return notificationBar;
-}
 
-/**
- * Update notification bar with count
- */
-function updateNotificationBar(count) {
-  const notificationBar = createNotificationBar();
-  
-  if (count > 0) {
-    notificationBar.innerHTML = `
+  function hasApprovedStatus({ review }) {
+    return /approved/i.test(review);
+  }
+
+  function hasBlockingReviewStatus({ review }) {
+    return /changes requested|review required/i.test(review);
+  }
+
+  function isPRReadyToMerge(signals) {
+    return !signals.draft &&
+           !hasBlockingLabel(signals) &&
+           !hasBlockingReviewStatus(signals) &&
+           hasApprovedStatus(signals);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Notification bar
+  // ---------------------------------------------------------------------------
+
+  // Cached so a repeat pass with an unchanged count performs no DOM write at
+  // all. The observer watches an ancestor of the bar, so an unconditional
+  // innerHTML rewrite here would retrigger the observer forever.
+  let lastRenderedCount = null;
+
+  function createNotificationBar() {
+    let bar = document.getElementById('merge-ready-notification');
+
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'merge-ready-notification';
+      bar.className = 'merge-ready-notification';
+
+      const container = document.querySelector('.application-main') ||
+                        document.querySelector('main') ||
+                        document.body;
+      container.insertBefore(bar, container.firstChild);
+    }
+
+    return bar;
+  }
+
+  function updateNotificationBar(count) {
+    if (count === lastRenderedCount && document.getElementById('merge-ready-notification')) {
+      return;
+    }
+    lastRenderedCount = count;
+
+    const bar = createNotificationBar();
+
+    if (count > 0) {
+      bar.innerHTML = `
       <div class="notification-content">
         <svg class="notification-icon" viewBox="0 0 16 16" width="16" height="16">
           <path fill="currentColor" d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"></path>
@@ -85,9 +179,8 @@ function updateNotificationBar(count) {
         </span>
       </div>
     `;
-    notificationBar.classList.add('visible');
-  } else {
-    notificationBar.innerHTML = `
+    } else {
+      bar.innerHTML = `
       <div class="notification-content">
         <svg class="notification-icon" viewBox="0 0 16 16" width="16" height="16">
           <path fill="currentColor" d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8z"></path>
@@ -95,71 +188,143 @@ function updateNotificationBar(count) {
         <span class="notification-text">No pull requests ready to merge</span>
       </div>
     `;
-    notificationBar.classList.add('visible');
-  }
-}
-
-/**
- * Highlight merge-ready PRs and update notification
- */
-function highlightMergeReadyPRs() {
-  // Find PR rows - try the most common selector first
-  const prItems = document.querySelectorAll('.js-issue-row');
-  
-  if (prItems.length === 0) {
-    return;
-  }
-  
-  let readyCount = 0;
-  
-  prItems.forEach(prElement => {
-    // Remove existing highlight
-    prElement.classList.remove('merge-ready-pr');
-    
-    // Check if ready and apply highlight
-    if (isPRReadyToMerge(prElement)) {
-      prElement.classList.add('merge-ready-pr');
-      readyCount++;
     }
-  });
-  
-  // Update notification bar
-  updateNotificationBar(readyCount);
-}
 
-/**
- * Initialize the extension
- */
-function init() {
-  // Wait a moment for page to load
-  setTimeout(() => {
-    highlightMergeReadyPRs();
-  }, 500);
-  
-  // Watch for DOM changes with debouncing
-  let debounceTimer;
-  const observer = new MutationObserver(() => {
+    bar.classList.add('visible');
+  }
+
+  function removeNotificationBar() {
+    document.getElementById('merge-ready-notification')?.remove();
+    lastRenderedCount = null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Highlighting
+  // ---------------------------------------------------------------------------
+
+  // Set while we are writing to the DOM, so our own mutations don't schedule
+  // another pass.
+  let applying = false;
+
+  function highlightMergeReadyPRs() {
+    const found = detectAdapter();
+
+    if (!found) {
+      // List not on the page (or not mounted yet) — leave any existing bar alone
+      // rather than flashing "0 ready" during a React remount.
+      return false;
+    }
+
+    const rows = found.adapter.rows(found.root);
+    if (rows.length === 0) return false;
+
+    applying = true;
+    let readyCount = 0;
+
+    try {
+      rows.forEach(row => {
+        const ready = isPRReadyToMerge(found.adapter.signals(row));
+        row.classList.toggle(ROW_FLAG, ready);
+        row.setAttribute(SEEN_ATTR, '');
+        if (ready) readyCount++;
+      });
+
+      updateNotificationBar(readyCount);
+    } finally {
+      applying = false;
+    }
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
+  function isPullsPage() {
+    return /^\/[^/]+\/[^/]+\/pulls\/?$/.test(location.pathname);
+  }
+
+  let observer = null;
+  let observedRoot = null;
+  let debounceTimer = null;
+
+  function schedulePass() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       highlightMergeReadyPRs();
-    }, 1000); // Increased debounce time to reduce load
-  });
-  
-  // Observe only the PR container, not the entire body
-  const container = document.querySelector('.js-navigation-container');
-  
-  if (container) {
-    observer.observe(container, {
-      childList: true,
-      subtree: true
-    });
+      attachObserver();
+    }, 300);
   }
-}
 
-// Run when DOM is ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
+  function attachObserver() {
+    const found = detectAdapter();
+    if (!found || found.root === observedRoot) return;
 
+    observer?.disconnect();
+    observedRoot = found.root;
+    observer = new MutationObserver(() => {
+      if (applying) return;
+      schedulePass();
+    });
+    observer.observe(observedRoot, { childList: true, subtree: true });
+  }
+
+  function detachObserver() {
+    observer?.disconnect();
+    observer = null;
+    observedRoot = null;
+  }
+
+  // The React list mounts after document_idle, so poll briefly for it instead of
+  // betting on a single fixed delay.
+  function waitForList(attempt = 0) {
+    if (highlightMergeReadyPRs()) {
+      attachObserver();
+      return;
+    }
+    if (attempt < 20) {
+      setTimeout(() => waitForList(attempt + 1), 250);
+    }
+  }
+
+  function start() {
+    if (!isPullsPage()) return;
+    waitForList();
+  }
+
+  function stop() {
+    detachObserver();
+    clearTimeout(debounceTimer);
+    removeNotificationBar();
+    document.querySelectorAll(`.${ROW_FLAG}`).forEach(el => el.classList.remove(ROW_FLAG));
+  }
+
+  // GitHub navigates client-side, so the script is injected once and then has to
+  // notice the URL changing under it.
+  let lastPath = location.pathname;
+
+  function onNavigate() {
+    if (location.pathname === lastPath) return;
+    lastPath = location.pathname;
+    stop();
+    start();
+  }
+
+  for (const method of ['pushState', 'replaceState']) {
+    const original = history[method];
+    history[method] = function (...args) {
+      const result = original.apply(this, args);
+      queueMicrotask(onNavigate);
+      return result;
+    };
+  }
+  window.addEventListener('popstate', onNavigate);
+  document.addEventListener('turbo:load', onNavigate);
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();

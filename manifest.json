@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GitHub PR Merge Ready Highlighter",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "description": "Highlights pull requests that are ready to be merged on GitHub",
   "author": "mlaplante",
   "permissions": [
@@ -13,11 +13,14 @@
   "content_scripts": [
     {
       "matches": [
-        "https://github.com/*/*/pulls",
-        "https://github.com/*/*/pulls?*"
+        "https://github.com/*"
       ],
-      "js": ["content.js"],
-      "css": ["styles.css"],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
       "run_at": "document_idle"
     }
   ],

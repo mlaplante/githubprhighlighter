@@ -1,24 +1,32 @@
 /* Highlight styling for merge-ready pull requests */
 .merge-ready-pr {
+  position: relative;
   background: linear-gradient(90deg, 
     rgba(16, 185, 129, 0.15) 0%, 
     rgba(16, 185, 129, 0.08) 100%) !important;
-  border-left: 4px solid #10b981 !important;
-  padding-left: 12px !important;
-  transition: all 0.3s ease;
+  /* inset shadow instead of border-left + padding-left: draws the same 4px
+     accent without adding to the box, so the new view's grid rows don't shift */
+  box-shadow: inset 4px 0 0 0 #10b981;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
 .merge-ready-pr:hover {
   background: linear-gradient(90deg, 
     rgba(16, 185, 129, 0.25) 0%, 
     rgba(16, 185, 129, 0.12) 100%) !important;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+  box-shadow: inset 4px 0 0 0 #10b981, 0 2px 8px rgba(16, 185, 129, 0.2);
 }
 
 /* Add a subtle indicator badge */
 .merge-ready-pr::before {
   content: "✓ Ready";
   position: absolute;
+  /* The new view's rows are `display: grid`, which resolves a `left` for this
+     pseudo-element. With `left` and `right` both resolved the box is
+     over-constrained and collapses to the width of a narrow grid track (3px),
+     so pin only the right edge and let the badge size to its text. */
+  left: auto;
+  width: max-content;
   right: 16px;
   top: 50%;
   transform: translateY(-50%);
@@ -36,11 +44,6 @@
 
 .merge-ready-pr:hover::before {
   opacity: 1;
-}
-
-/* Ensure the PR item has relative positioning for the badge */
-[data-id][data-hovercard-type="pull_request"] {
-  position: relative;
 }
 
 /* Notification bar styling */

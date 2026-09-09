@@ -7,9 +7,12 @@ A Chrome extension that visually highlights pull requests that are ready to be m
 - **Notification Bar**: A sticky notification bar at the top of the page shows how many PRs are ready to merge
 - **Visual Highlighting**: PRs ready to merge are highlighted with a green background gradient and left border
 - **Ready Badge**: A "✓ Ready" badge appears on merge-ready PRs
+- **Works with both GitHub PR list views**: supports the new React list and the older Rails-rendered list, detected at runtime
+- **Survives client-side navigation**: re-applies when you move between GitHub pages without a full reload
 - **Lightweight & Fast**: Optimized for performance with minimal resource usage
 - **Smart Detection**: Automatically detects PRs that:
   - MUST have "Approved" status
+  - Are NOT draft pull requests (GitHub refuses to merge a draft even when approved)
   - Do NOT have "Review required" status
   - Do NOT have "Changes requested" status
   - Do NOT have blocking labels like "Don't Merge", "WIP", or "Work in progress"
@@ -108,6 +111,35 @@ You can also customize the highlight styling in `styles.css`:
 - Verify the PR doesn't have blocking labels
 - Check that the PR doesn't have "Review required" status
 - GitHub's DOM structure may have changed - open an issue if problems persist
+
+### How the two views are supported
+
+GitHub serves two different PR-list markups depending on the account and rollout
+state, so `content.js` detects which one is present instead of assuming either:
+
+| | New (React) view | Legacy view |
+|---|---|---|
+| List root | `[class*="SharedListContainer-module__listContainer"]` | `.js-navigation-container` |
+| Row | `li[class*="PullsListItem-module__listItem"]` | `.js-issue-row` |
+| Labels | `[aria-label^="Filter by label "]` | `.IssueLabel, .Label` |
+| Review state | `[data-testid="review-decision-icon"]` | row text |
+| Draft | `[aria-label="Draft pull request"]` | not detected (see below) |
+
+The React view's class names are CSS-module hashes such as
+`PullsListItem-module__listItem__CSciQ`. **The hash suffix changes on every
+GitHub deploy**, so selectors match the stable module-name prefix with `class*=`
+and must never hard-code the hash.
+
+The legacy adapter's draft check is a deliberate no-op: that view marks drafts
+differently, and it cannot be exercised while signed in (GitHub serves the React
+view to logged-in users), so no unverified selector is guessed at there. The rest
+of the legacy adapter preserves the previous behavior verbatim.
+
+In the React view the review decision exists *only* inside
+`[data-testid="review-decision-icon"]` ("Approved" / "Review required" /
+"Changes requested"), and is absent entirely when a PR has no reviews. It is read
+from that icon rather than from the row's text so a PR whose title happens to
+contain the word "approved" is not mistaken for an approved PR.
 
 ## Contributing
 
