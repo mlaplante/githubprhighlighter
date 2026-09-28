@@ -46,6 +46,50 @@
   opacity: 1;
 }
 
+/* Highlight styling for PRs awaiting the current user's review. Amber, to
+   read as "needs your attention" next to the green ready rows. Mirrors the
+   merge-ready rules above, including the grid-safe badge positioning. */
+.review-requested-pr {
+  position: relative;
+  background: linear-gradient(90deg,
+    rgba(245, 158, 11, 0.16) 0%,
+    rgba(245, 158, 11, 0.07) 100%) !important;
+  box-shadow: inset 4px 0 0 0 #f59e0b;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.review-requested-pr:hover {
+  background: linear-gradient(90deg,
+    rgba(245, 158, 11, 0.26) 0%,
+    rgba(245, 158, 11, 0.12) 100%) !important;
+  box-shadow: inset 4px 0 0 0 #f59e0b, 0 2px 8px rgba(245, 158, 11, 0.2);
+}
+
+.review-requested-pr::before {
+  content: "● Your review";
+  position: absolute;
+  left: auto;
+  width: max-content;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  /* darker than the accent so white text stays readable */
+  background: #b45309;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  opacity: 0.9;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.review-requested-pr:hover::before {
+  opacity: 1;
+}
+
 /* Notification bar styling */
 .merge-ready-notification {
   position: sticky;
@@ -87,6 +131,20 @@
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.2px;
+}
+
+.notification-review {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  background: #b45309;
+  padding: 2px 10px;
+  border-radius: 12px;
+}
+
+.notification-review strong {
+  font-weight: 700;
+  margin-right: 2px;
 }
 
 .notification-text strong {

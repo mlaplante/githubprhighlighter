@@ -7,6 +7,7 @@ A Chrome extension that visually highlights pull requests that are ready to be m
 - **Notification Bar**: A sticky notification bar at the top of the page shows how many PRs are ready to merge
 - **Visual Highlighting**: PRs ready to merge are highlighted with a green background gradient and left border
 - **Ready Badge**: A "✓ Ready" badge appears on merge-ready PRs
+- **Your Review Requests**: PRs awaiting *your* review get an amber highlight and a "● Your review" badge, and the notification bar shows how many are on the page
 - **Works with both GitHub PR list views**: supports the new React list and the older Rails-rendered list, detected at runtime
 - **Survives client-side navigation**: re-applies when you move between GitHub pages without a full reload
 - **Lightweight & Fast**: Optimized for performance with minimal resource usage
@@ -50,6 +51,7 @@ A Chrome extension that visually highlights pull requests that are ready to be m
      - Green background gradient
      - Green left border (4px)
      - "✓ Ready" badge in the top right
+   - **Review-requested PRs**: Each open PR where you're a requested reviewer is highlighted with an amber background, amber left border, and a "● Your review" badge. If a PR is both merge-ready and waiting on you, the green ready styling wins (it's counted in both totals)
 
 3. **Requirements for highlighting** - PRs will ONLY be highlighted if they meet ALL criteria:
    - ✓ Have "Approved" status
@@ -134,6 +136,16 @@ The legacy adapter's draft check is a deliberate no-op: that view marks drafts
 differently, and it cannot be exercised while signed in (GitHub serves the React
 view to logged-in users), so no unverified selector is guessed at there. The rest
 of the legacy adapter preserves the previous behavior verbatim.
+
+Review requests are not shown on list rows in either view, so the extension
+fetches the same repo's PR list with `is:pr is:open review-requested:@me`
+(up to 5 pages) and reads PR numbers from the JSON GitHub embeds in that page
+(`script[data-target="react-app.embeddedData"]` →
+`payload.repoPullsDashboardContentRoute.results[].number`). The fetch is
+same-origin, so it uses your signed-in session; when signed out it is skipped.
+`review-requested:` also matches requests made to a team you're on; switch the
+query to `user-review-requested:@me` in `content.js` to limit it to direct
+requests.
 
 In the React view the review decision exists *only* inside
 `[data-testid="review-decision-icon"]` ("Approved" / "Review required" /

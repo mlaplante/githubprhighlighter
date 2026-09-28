@@ -11,6 +11,7 @@
   ];
 
   const ROW_FLAG = 'merge-ready-pr';
+  const REVIEW_FLAG = 'review-requested-pr';
   const SEEN_ATTR = 'data-mrh-seen';
 
   // ---------------------------------------------------------------------------
@@ -135,13 +136,82 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Review requests
+  //
+  // Neither list view puts requested reviewers on the row (the avatar stack is
+  // assignees), so ask GitHub instead: fetch this repo's list filtered to
+  // `review-requested:@me` and read the PR numbers out of the JSON the React
+  // list embeds in the server-rendered page. The request is same-origin, so it
+  // carries the signed-in session like any other page load.
+  // ---------------------------------------------------------------------------
+
+  const MAX_REVIEW_PAGES = 5;
+
+  // PR numbers awaiting the current user's review, or null until known.
+  let reviewRequested = null;
+  // Bumped on every start/stop so a fetch that outlives its page is discarded.
+  let reviewGeneration = 0;
+
+  function currentUser() {
+    return document.querySelector('meta[name="user-login"]')?.content || '';
+  }
+
+  async function fetchReviewRequestedPage(page) {
+    const url = new URL(location.pathname, location.origin);
+    url.searchParams.set('q', 'is:pr is:open review-requested:@me');
+    if (page > 1) url.searchParams.set('page', page);
+
+    const response = await fetch(url, { credentials: 'same-origin' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    const data = doc.querySelector('script[data-target="react-app.embeddedData"]');
+    const content = data && JSON.parse(data.textContent).payload?.repoPullsDashboardContentRoute;
+    if (!content) throw new Error('review-requested payload not found');
+    return content;
+  }
+
+  async function loadReviewRequests() {
+    const generation = ++reviewGeneration;
+    reviewRequested = null;
+    if (!currentUser()) return;
+
+    const numbers = new Set();
+    try {
+      for (let page = 1; page <= MAX_REVIEW_PAGES; page++) {
+        const content = await fetchReviewRequestedPage(page);
+        content.results.forEach(pr => numbers.add(pr.number));
+        if (page >= content.totalPages) break;
+      }
+    } catch (err) {
+      // Best effort: merge-ready highlighting doesn't depend on this.
+      console.warn('[PR Highlighter] could not load review requests:', err);
+      return;
+    }
+
+    if (generation !== reviewGeneration) return;
+    reviewRequested = numbers;
+    highlightMergeReadyPRs();
+  }
+
+  function prNumber(row) {
+    const link = row.querySelector('a[href*="/pull/"]');
+    const match = link && link.getAttribute('href').match(/\/pull\/(\d+)/);
+    return match ? Number(match[1]) : null;
+  }
+
+  function isReviewRequested(row) {
+    return !!reviewRequested && reviewRequested.has(prNumber(row));
+  }
+
+  // ---------------------------------------------------------------------------
   // Notification bar
   // ---------------------------------------------------------------------------
 
   // Cached so a repeat pass with an unchanged count performs no DOM write at
   // all. The observer watches an ancestor of the bar, so an unconditional
   // innerHTML rewrite here would retrigger the observer forever.
-  let lastRenderedCount = null;
+  let lastRenderedKey = null;
 
   function createNotificationBar() {
     let bar = document.getElementById('merge-ready-notification');
@@ -160,13 +230,17 @@
     return bar;
   }
 
-  function updateNotificationBar(count) {
-    if (count === lastRenderedCount && document.getElementById('merge-ready-notification')) {
+  function updateNotificationBar(count, reviewCount) {
+    const key = `${count}/${reviewCount}`;
+    if (key === lastRenderedKey && document.getElementById('merge-ready-notification')) {
       return;
     }
-    lastRenderedCount = count;
+    lastRenderedKey = key;
 
     const bar = createNotificationBar();
+    const reviewText = reviewCount > 0
+      ? `<span class="notification-review"><strong>${reviewCount}</strong> awaiting your review</span>`
+      : '';
 
     if (count > 0) {
       bar.innerHTML = `
@@ -177,6 +251,7 @@
         <span class="notification-text">
           <strong>${count}</strong> ${count === 1 ? 'pull request is' : 'pull requests are'} ready to merge
         </span>
+        ${reviewText}
       </div>
     `;
     } else {
@@ -186,6 +261,7 @@
           <path fill="currentColor" d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8z"></path>
         </svg>
         <span class="notification-text">No pull requests ready to merge</span>
+        ${reviewText}
       </div>
     `;
     }
@@ -195,7 +271,7 @@
 
   function removeNotificationBar() {
     document.getElementById('merge-ready-notification')?.remove();
-    lastRenderedCount = null;
+    lastRenderedKey = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -220,16 +296,22 @@
 
     applying = true;
     let readyCount = 0;
+    let reviewCount = 0;
 
     try {
       rows.forEach(row => {
         const ready = isPRReadyToMerge(found.adapter.signals(row));
+        // A PR can be both approved and still waiting on you. Ready wins the
+        // row styling (it's mergeable without you); both are still counted.
+        const review = isReviewRequested(row);
         row.classList.toggle(ROW_FLAG, ready);
+        row.classList.toggle(REVIEW_FLAG, review && !ready);
         row.setAttribute(SEEN_ATTR, '');
         if (ready) readyCount++;
+        if (review) reviewCount++;
       });
 
-      updateNotificationBar(readyCount);
+      updateNotificationBar(readyCount, reviewCount);
     } finally {
       applying = false;
     }
@@ -291,13 +373,17 @@
   function start() {
     if (!isPullsPage()) return;
     waitForList();
+    loadReviewRequests();
   }
 
   function stop() {
     detachObserver();
     clearTimeout(debounceTimer);
+    reviewGeneration++;
+    reviewRequested = null;
     removeNotificationBar();
-    document.querySelectorAll(`.${ROW_FLAG}`).forEach(el => el.classList.remove(ROW_FLAG));
+    document.querySelectorAll(`.${ROW_FLAG}, .${REVIEW_FLAG}`)
+      .forEach(el => el.classList.remove(ROW_FLAG, REVIEW_FLAG));
   }
 
   // GitHub navigates client-side, so the script is injected once and then has to
