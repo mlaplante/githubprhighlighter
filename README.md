@@ -8,6 +8,7 @@ A Chrome extension that visually highlights pull requests that are ready to be m
 - **Visual Highlighting**: PRs ready to merge are highlighted with a green background gradient and left border
 - **Ready Badge**: A "✓ Ready" badge appears on merge-ready PRs
 - **Your Review Requests**: PRs awaiting *your* review get an amber highlight and a "● Your review" badge, and the notification bar shows how many are on the page
+- **Your PRs With Changes Requested**: your own open PRs that a reviewer has requested changes on get a rose highlight and a "✎ Needs your fixes" badge, and the notification bar shows a count that links to the filtered list of all of them
 - **Works with both GitHub PR list views**: supports the new React list and the older Rails-rendered list, detected at runtime
 - **Survives client-side navigation**: re-applies when you move between GitHub pages without a full reload
 - **Lightweight & Fast**: Optimized for performance with minimal resource usage
@@ -52,6 +53,7 @@ A Chrome extension that visually highlights pull requests that are ready to be m
      - Green left border (4px)
      - "✓ Ready" badge in the top right
    - **Review-requested PRs**: Each open PR where you're a requested reviewer is highlighted with an amber background, amber left border, and a "● Your review" badge. If a PR is both merge-ready and waiting on you, the green ready styling wins (it's counted in both totals)
+   - **Your PRs with changes requested**: Each of your own open PRs (drafts included) with a changes-requested review is highlighted with a rose background, rose left border, and a "✎ Needs your fixes" badge. The "N of yours need changes" pill in the notification bar links to `is:pr is:open author:@me review:changes_requested`, so PRs on other pages of the list are one click away
 
 3. **Requirements for highlighting** - PRs will ONLY be highlighted if they meet ALL criteria:
    - ✓ Have "Approved" status
@@ -146,6 +148,13 @@ same-origin, so it uses your signed-in session; when signed out it is skipped.
 `review-requested:` also matches requests made to a team you're on; switch the
 query to `user-review-requested:@me` in `content.js` to limit it to direct
 requests.
+
+Your own PRs with changes requested are found the same way, with a second fetch
+for `is:pr is:open author:@me review:changes_requested` (note the underscore —
+GitHub search does not recognise `changes-requested`). The two fetches load and
+fail independently. Changes requested blocks merging, so those rows are never
+also "ready"; if one of your PRs is also in the review-requested set (a team you
+belong to was requested on it), the rose changes-requested styling wins.
 
 In the React view the review decision exists *only* inside
 `[data-testid="review-decision-icon"]` ("Approved" / "Review required" /

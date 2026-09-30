@@ -12,6 +12,7 @@
 
   const ROW_FLAG = 'merge-ready-pr';
   const REVIEW_FLAG = 'review-requested-pr';
+  const CHANGES_FLAG = 'changes-requested-pr';
   const SEEN_ATTR = 'data-mrh-seen';
 
   // ---------------------------------------------------------------------------
@@ -136,62 +137,85 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Review requests
+  // Review requests and changes requested
   //
-  // Neither list view puts requested reviewers on the row (the avatar stack is
-  // assignees), so ask GitHub instead: fetch this repo's list filtered to
-  // `review-requested:@me` and read the PR numbers out of the JSON the React
-  // list embeds in the server-rendered page. The request is same-origin, so it
-  // carries the signed-in session like any other page load.
+  // Neither list view puts requested reviewers or the author's identity on the
+  // row in a form we can rely on (the avatar stack is assignees), so ask GitHub
+  // instead: fetch this repo's list filtered by a search query and read the PR
+  // numbers out of the JSON the React list embeds in the server-rendered page.
+  // The request is same-origin, so it carries the signed-in session like any
+  // other page load.
   // ---------------------------------------------------------------------------
 
-  const MAX_REVIEW_PAGES = 5;
+  const MAX_QUERY_PAGES = 5;
+
+  const REVIEW_REQUESTED_QUERY = 'is:pr is:open review-requested:@me';
+  // Your own PRs with a changes-requested review. The qualifier is spelled with
+  // an underscore; `changes-requested` is not recognised by GitHub search.
+  const CHANGES_REQUESTED_QUERY = 'is:pr is:open author:@me review:changes_requested';
 
   // PR numbers awaiting the current user's review, or null until known.
   let reviewRequested = null;
+  // The current user's PRs that have changes requested, or null until known.
+  let changesRequested = null;
   // Bumped on every start/stop so a fetch that outlives its page is discarded.
-  let reviewGeneration = 0;
+  let queryGeneration = 0;
 
   function currentUser() {
     return document.querySelector('meta[name="user-login"]')?.content || '';
   }
 
-  async function fetchReviewRequestedPage(page) {
+  function queryURL(query, page = 1) {
     const url = new URL(location.pathname, location.origin);
-    url.searchParams.set('q', 'is:pr is:open review-requested:@me');
+    url.searchParams.set('q', query);
     if (page > 1) url.searchParams.set('page', page);
+    return url;
+  }
 
-    const response = await fetch(url, { credentials: 'same-origin' });
+  async function fetchQueryPage(query, page) {
+    const response = await fetch(queryURL(query, page), { credentials: 'same-origin' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
     const data = doc.querySelector('script[data-target="react-app.embeddedData"]');
     const content = data && JSON.parse(data.textContent).payload?.repoPullsDashboardContentRoute;
-    if (!content) throw new Error('review-requested payload not found');
+    if (!content?.results) throw new Error(`payload not found for "${query}"`);
     return content;
   }
 
-  async function loadReviewRequests() {
-    const generation = ++reviewGeneration;
-    reviewRequested = null;
-    if (!currentUser()) return;
-
+  async function fetchPRNumbers(query) {
     const numbers = new Set();
+    for (let page = 1; page <= MAX_QUERY_PAGES; page++) {
+      const content = await fetchQueryPage(query, page);
+      content.results.forEach(pr => numbers.add(pr.number));
+      if (page >= content.totalPages) break;
+    }
+    return numbers;
+  }
+
+  // Each set loads independently: one failing (best effort — merge-ready
+  // highlighting doesn't depend on either) never discards the other.
+  async function loadQuery(query, generation, assign) {
+    let numbers;
     try {
-      for (let page = 1; page <= MAX_REVIEW_PAGES; page++) {
-        const content = await fetchReviewRequestedPage(page);
-        content.results.forEach(pr => numbers.add(pr.number));
-        if (page >= content.totalPages) break;
-      }
+      numbers = await fetchPRNumbers(query);
     } catch (err) {
-      // Best effort: merge-ready highlighting doesn't depend on this.
-      console.warn('[PR Highlighter] could not load review requests:', err);
+      console.warn(`[PR Highlighter] could not load "${query}":`, err);
       return;
     }
-
-    if (generation !== reviewGeneration) return;
-    reviewRequested = numbers;
+    if (generation !== queryGeneration) return;
+    assign(numbers);
     highlightMergeReadyPRs();
+  }
+
+  function loadUserQueries() {
+    const generation = ++queryGeneration;
+    reviewRequested = null;
+    changesRequested = null;
+    if (!currentUser()) return;
+
+    loadQuery(REVIEW_REQUESTED_QUERY, generation, n => { reviewRequested = n; });
+    loadQuery(CHANGES_REQUESTED_QUERY, generation, n => { changesRequested = n; });
   }
 
   function prNumber(row) {
@@ -202,6 +226,10 @@
 
   function isReviewRequested(row) {
     return !!reviewRequested && reviewRequested.has(prNumber(row));
+  }
+
+  function hasChangesRequested(row) {
+    return !!changesRequested && changesRequested.has(prNumber(row));
   }
 
   // ---------------------------------------------------------------------------
@@ -230,8 +258,8 @@
     return bar;
   }
 
-  function updateNotificationBar(count, reviewCount) {
-    const key = `${count}/${reviewCount}`;
+  function updateNotificationBar(count, reviewCount, changesCount) {
+    const key = `${count}/${reviewCount}/${changesCount}`;
     if (key === lastRenderedKey && document.getElementById('merge-ready-notification')) {
       return;
     }
@@ -240,6 +268,11 @@
     const bar = createNotificationBar();
     const reviewText = reviewCount > 0
       ? `<span class="notification-review"><strong>${reviewCount}</strong> awaiting your review</span>`
+      : '';
+    // A link rather than a plain count: your PRs needing fixes may be on another
+    // page of the list, and the filtered view shows all of them.
+    const changesText = changesCount > 0
+      ? `<a class="notification-changes" href="${queryURL(CHANGES_REQUESTED_QUERY)}"><strong>${changesCount}</strong> of yours ${changesCount === 1 ? 'needs' : 'need'} changes</a>`
       : '';
 
     if (count > 0) {
@@ -252,6 +285,7 @@
           <strong>${count}</strong> ${count === 1 ? 'pull request is' : 'pull requests are'} ready to merge
         </span>
         ${reviewText}
+        ${changesText}
       </div>
     `;
     } else {
@@ -262,6 +296,7 @@
         </svg>
         <span class="notification-text">No pull requests ready to merge</span>
         ${reviewText}
+        ${changesText}
       </div>
     `;
     }
@@ -297,6 +332,7 @@
     applying = true;
     let readyCount = 0;
     let reviewCount = 0;
+    let changesCount = 0;
 
     try {
       rows.forEach(row => {
@@ -304,14 +340,20 @@
         // A PR can be both approved and still waiting on you. Ready wins the
         // row styling (it's mergeable without you); both are still counted.
         const review = isReviewRequested(row);
+        // Changes requested blocks merging, so it never overlaps ready. It can
+        // overlap review when a team you're on is requested on your own PR;
+        // changes wins there, since only you can unblock it.
+        const changes = hasChangesRequested(row);
         row.classList.toggle(ROW_FLAG, ready);
-        row.classList.toggle(REVIEW_FLAG, review && !ready);
+        row.classList.toggle(CHANGES_FLAG, changes && !ready);
+        row.classList.toggle(REVIEW_FLAG, review && !ready && !changes);
         row.setAttribute(SEEN_ATTR, '');
         if (ready) readyCount++;
         if (review) reviewCount++;
+        if (changes) changesCount++;
       });
 
-      updateNotificationBar(readyCount, reviewCount);
+      updateNotificationBar(readyCount, reviewCount, changesCount);
     } finally {
       applying = false;
     }
@@ -373,17 +415,18 @@
   function start() {
     if (!isPullsPage()) return;
     waitForList();
-    loadReviewRequests();
+    loadUserQueries();
   }
 
   function stop() {
     detachObserver();
     clearTimeout(debounceTimer);
-    reviewGeneration++;
+    queryGeneration++;
     reviewRequested = null;
+    changesRequested = null;
     removeNotificationBar();
-    document.querySelectorAll(`.${ROW_FLAG}, .${REVIEW_FLAG}`)
-      .forEach(el => el.classList.remove(ROW_FLAG, REVIEW_FLAG));
+    document.querySelectorAll(`.${ROW_FLAG}, .${REVIEW_FLAG}, .${CHANGES_FLAG}`)
+      .forEach(el => el.classList.remove(ROW_FLAG, REVIEW_FLAG, CHANGES_FLAG));
   }
 
   // GitHub navigates client-side, so the script is injected once and then has to

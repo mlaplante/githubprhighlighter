@@ -90,6 +90,50 @@
   opacity: 1;
 }
 
+/* Highlight styling for the current user's own PRs that have changes
+   requested. Rose, to read as "blocked on you" — distinct from amber (someone
+   else's PR waiting on your review). Same grid-safe badge positioning. */
+.changes-requested-pr {
+  position: relative;
+  background: linear-gradient(90deg,
+    rgba(225, 29, 72, 0.14) 0%,
+    rgba(225, 29, 72, 0.06) 100%) !important;
+  box-shadow: inset 4px 0 0 0 #e11d48;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.changes-requested-pr:hover {
+  background: linear-gradient(90deg,
+    rgba(225, 29, 72, 0.24) 0%,
+    rgba(225, 29, 72, 0.11) 100%) !important;
+  box-shadow: inset 4px 0 0 0 #e11d48, 0 2px 8px rgba(225, 29, 72, 0.2);
+}
+
+.changes-requested-pr::before {
+  content: "✎ Needs your fixes";
+  position: absolute;
+  left: auto;
+  width: max-content;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  /* darker than the accent so white text stays readable */
+  background: #be123c;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  opacity: 0.9;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.changes-requested-pr:hover::before {
+  opacity: 1;
+}
+
 /* Notification bar styling */
 .merge-ready-notification {
   position: sticky;
@@ -143,6 +187,26 @@
 }
 
 .notification-review strong {
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.notification-changes {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  background: #be123c;
+  color: white !important;
+  text-decoration: none !important;
+  padding: 2px 10px;
+  border-radius: 12px;
+}
+
+.notification-changes:hover {
+  text-decoration: underline !important;
+}
+
+.notification-changes strong {
   font-weight: 700;
   margin-right: 2px;
 }

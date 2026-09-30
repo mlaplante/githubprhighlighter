@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GitHub PR Merge Ready Highlighter",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Highlights pull requests that are ready to be merged on GitHub",
   "author": "mlaplante",
   "permissions": [
